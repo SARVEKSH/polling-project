@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
-import { KafkaService, WebSocketService} from './services';
+import { KafkaService, WebSocketService } from './services';
 import { pollRouter } from './routes/polls';
 import { leaderboardRouter } from './routes/leaderboard';
 import { errorHandler, DatabaseError, KafkaError } from './utils/errorHandler';
@@ -68,36 +68,7 @@ export class App {
    * client connections, disconnections, errors, and messages.
    */
   private initializeWebSocket(): void {
-    this.websocketService.wss.on('connection', (ws) => {
-      console.log('New WebSocket client connected');
-
-      // Send initial leaderboard data on connection
-      this.kafkaService.leaderboardConsumerActivity(this.websocketService)
-        .then(initialData => {
-          ws.send(JSON.stringify({
-            type: 'LEADERBOARD_INIT',
-            data: initialData
-          }));
-        })
-        .catch(error => {
-          console.error('Error sending initial leaderboard data:', error);
-        });
-
-      // Handle client disconnection
-      ws.on('close', () => {
-        console.log('Client disconnected');
-      });
-
-      // Handle connection errors
-      ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-      });
-
-      // Optional: Handle incoming messages from clients
-      ws.on('message', (message) => {
-        console.log('Received message from client:', message.toString());
-      });
-    });
+    this.websocketService.initialize();
   }
 
   /**
@@ -108,77 +79,12 @@ export class App {
   }
 
   /**
-   * Starts the application by connecting to the database,
-   * initializing Kafka services, and starting the HTTP server.
-   * @param port - The port number to listen on
-   * @throws {DatabaseError} When database connection fails
-   * @throws {KafkaError} When Kafka connection fails
+   * Starts the Express server on the specified port.
+   * @param port - Port number to start the server on
    */
   public async start(port: number): Promise<void> {
-    try {
-      // Test database connection
-      const client = await pool.connect();
-      console.log('Database connection successful');
-      client.release();
-
-      await this.kafkaService.adminActivity();
-      await this.kafkaService.consumerActivity();
-
-      this.server.listen(port, '0.0.0.0', () => {
-        console.log(`Server is running on port ${port}`);
-      });
-
-      this.setupGracefulShutdown();
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('database')) {
-          throw new DatabaseError(`Failed to connect to database: ${error.message}`);
-        } else if (error.message.includes('kafka')) {
-          throw new KafkaError(`Failed to connect to Kafka: ${error.message}`);
-        }
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Sets up graceful shutdown handlers for SIGTERM and SIGINT signals.
-   * Closes HTTP server, WebSocket connections, Kafka connections,
-   * and database pool in order.
-   */
-  private async setupGracefulShutdown(): Promise<void> {
-    const shutdown = async () => {
-      console.log('Shutting down gracefully...');
-
-      try {
-        // Close server first (stop accepting new connections)
-        await new Promise((resolve) => {
-          this.server.close(() => {
-            console.log('HTTP server closed');
-            resolve(true);
-          });
-        });
-
-        // Close WebSocket connections
-        await this.websocketService.close();
-        console.log('WebSocket server closed');
-
-        // Disconnect Kafka
-        await this.kafkaService.disconnect();
-        console.log('Kafka connections closed');
-
-        // Close database pool
-        await pool.end();
-        console.log('Database connections closed');
-
-        process.exit(0);
-      } catch (error) {
-        console.error('Error during shutdown:', error);
-        process.exit(1);
-      }
-    };
-
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
+    this.server.listen(port, () => {
+      console.log(`Server is running on port ${port}`);
+    });
   }
 }
